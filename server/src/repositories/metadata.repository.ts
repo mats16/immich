@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BinaryField, DefaultReadTaskOptions, ExifTool, Tags } from 'exiftool-vendored';
 import geotz from 'geo-tz';
 import { LoggingRepository } from 'src/repositories/logging.repository';
+import { StorageRepository } from 'src/repositories/storage.repository';
 import { mimeTypes } from 'src/utils/mime-types';
 
 interface ExifDuration {
@@ -91,7 +92,10 @@ export class MetadataRepository {
     writeArgs: ['-api', 'largefilesupport=1', '-overwrite_original'],
   });
 
-  constructor(private logger: LoggingRepository) {
+  constructor(
+    private logger: LoggingRepository,
+    private storageRepository: StorageRepository,
+  ) {
     this.logger.setContext(MetadataRepository.name);
   }
 
@@ -104,22 +108,28 @@ export class MetadataRepository {
   }
 
   readTags(path: string): Promise<ImmichTags> {
-    const args = mimeTypes.isVideo(path) ? ['-ee'] : [];
-    return this.exiftool.read(path, args).catch((error) => {
-      this.logger.warn(`Error reading exif data (${path}): ${error}\n${error?.stack}`);
-      return {};
-    }) as Promise<ImmichTags>;
+    return this.storageRepository.withLocalPath(path, async (localPath) => {
+      const args = mimeTypes.isVideo(localPath) ? ['-ee'] : [];
+      return this.exiftool.read(localPath, args).catch((error) => {
+        this.logger.warn(`Error reading exif data (${localPath}): ${error}\n${error?.stack}`);
+        return {};
+      }) as Promise<ImmichTags>;
+    });
   }
 
   extractBinaryTag(path: string, tagName: string): Promise<Buffer> {
-    return this.exiftool.extractBinaryTagToBuffer(tagName, path);
+    return this.storageRepository.withLocalPath(path, async (localPath) => {
+      return this.exiftool.extractBinaryTagToBuffer(tagName, localPath);
+    });
   }
 
   async writeTags(path: string, tags: Partial<Tags>): Promise<void> {
-    try {
-      await this.exiftool.write(path, tags);
-    } catch (error) {
-      this.logger.warn(`Error writing exif data (${path}): ${error}`);
-    }
+    return this.storageRepository.withLocalPath(path, async (localPath) => {
+      try {
+        await this.exiftool.write(localPath, tags);
+      } catch (error) {
+        this.logger.warn(`Error writing exif data (${localPath}): ${error}`);
+      }
+    });
   }
 }

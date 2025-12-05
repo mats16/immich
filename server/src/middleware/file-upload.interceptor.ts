@@ -6,6 +6,7 @@ import { NextFunction, RequestHandler } from 'express';
 import multer, { StorageEngine } from 'multer';
 import { randomUUID } from 'node:crypto';
 import { Observable } from 'rxjs';
+import { StorageCore } from 'src/cores/storage.core';
 import { UploadFieldName } from 'src/dtos/asset-media.dto';
 import { RouteKey } from 'src/enum';
 import { AuthRequest } from 'src/middleware/auth.guard';
@@ -112,7 +113,10 @@ export class FileUploadInterceptor implements NestInterceptor {
     const uploadRequest = asUploadRequest(request, file);
     const folder = this.assetService.getUploadFolder(uploadRequest);
     const filename = this.assetService.getUploadFilename(uploadRequest);
-    const destination = `${folder}/${filename}`;
+    const localPath = `${folder}/${filename}`;
+
+    // Add storage backend prefix (S3 or local)
+    const destination = StorageCore.addStoragePrefix(localPath);
 
     // Determine if we should compute checksum (only for asset files, not profile images)
     const shouldComputeChecksum = this.isAssetUploadFile(file);

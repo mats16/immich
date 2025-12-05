@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import { MetadataRepository } from 'src/repositories/metadata.repository';
+import { StorageRepository } from 'src/repositories/storage.repository';
 import { MetadataService } from 'src/services/metadata.service';
 import { automock, newRandomImage, newTestService, ServiceMocks } from 'test/utils';
 
-const metadataRepository = new MetadataRepository(
-  // eslint-disable-next-line no-sparse-arrays
-  automock(LoggingRepository, { args: [, { getEnv: () => ({}) }], strict: false }),
-);
+const loggingRepository = automock(LoggingRepository, { args: [, { getEnv: () => ({}) }], strict: false });
+const storageRepository = new StorageRepository(loggingRepository);
+const metadataRepository = new MetadataRepository(loggingRepository, storageRepository);
 
 const createTestFile = async (exifData: Record<string, any>) => {
   const data = newRandomImage();

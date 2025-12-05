@@ -21,6 +21,11 @@ export class EnvDto {
   @Optional()
   IMMICH_BUILD_URL?: string;
 
+  @IsInt()
+  @Optional()
+  @Type(() => Number)
+  IMMICH_BULL_DRAINDELAY?: number;
+
   @IsString()
   @Optional()
   IMMICH_BUILD_IMAGE?: string;
@@ -49,7 +54,10 @@ export class EnvDto {
   IMMICH_LOG_LEVEL?: LogLevel;
 
   @Optional()
-  @Matches(/^\//, { message: 'IMMICH_MEDIA_LOCATION must be an absolute path' })
+  @Matches(/^(\/|[a-z0-9-]+\.[a-z0-9.-]+\/)/i, {
+    message:
+      'IMMICH_MEDIA_LOCATION must be an absolute path or cloud storage path (e.g., /data or host.com/bucket/path)',
+  })
   IMMICH_MEDIA_LOCATION?: string;
 
   @IsInt()
@@ -202,4 +210,9 @@ export class EnvDto {
   @IsString()
   @Optional()
   REDIS_URL?: string;
+
+  @IsInt()
+  @Optional()
+  @Type(() => Number)
+  IMMICH_REDIS_MAX_RETRIES_PER_REQUEST?: number;
 }

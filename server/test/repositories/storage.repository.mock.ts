@@ -71,5 +71,11 @@ export const newStorageRepositoryMock = (): Mocked<RepositoryInterface<StorageRe
     copyFile: vitest.fn(),
     utimes: vitest.fn(),
     watch: vitest.fn().mockImplementation(makeMockWatcher({})),
+    writeFile: vitest
+      .fn()
+      .mockImplementation(<T>(filepath: string, callback: (localPath: string) => Promise<T>) => callback(filepath)),
+    withLocalPath: vitest
+      .fn()
+      .mockImplementation(<T>(filepath: string, callback: (localPath: string) => Promise<T>) => callback(filepath)),
   };
 };

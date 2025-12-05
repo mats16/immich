@@ -1,5 +1,6 @@
 import { UserController } from 'src/controllers/user.controller';
 import { LoggingRepository } from 'src/repositories/logging.repository';
+import { StorageRepository } from 'src/repositories/storage.repository';
 import { UserService } from 'src/services/user.service';
 import request from 'supertest';
 import { errorDto } from 'test/medium/responses';
@@ -9,11 +10,13 @@ import { automock, ControllerContext, controllerSetup, mockBaseService } from 't
 describe(UserController.name, () => {
   let ctx: ControllerContext;
   const service = mockBaseService(UserService);
+  const logger = automock(LoggingRepository, { strict: false });
 
   beforeAll(async () => {
     ctx = await controllerSetup(UserController, [
-      { provide: LoggingRepository, useValue: automock(LoggingRepository, { strict: false }) },
+      { provide: LoggingRepository, useValue: logger },
       { provide: UserService, useValue: service },
+      { provide: StorageRepository, useValue: new StorageRepository(logger) },
     ]);
     return () => ctx.close();
   });

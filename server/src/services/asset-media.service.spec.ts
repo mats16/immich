@@ -308,12 +308,14 @@ describe(AssetMediaService.name, () => {
       expect(sut.getUploadFolder(uploadFile.filename(UploadFieldName.PROFILE_DATA, 'image.jpg'))).toEqual(
         expect.stringContaining('/data/profile/admin_id'),
       );
+      // Directory creation is now handled by StorageRepository.uploadFromStream
     });
 
     it('should return upload for everything else', () => {
       expect(sut.getUploadFolder(uploadFile.filename(UploadFieldName.ASSET_DATA, 'image.jpg'))).toEqual(
         expect.stringContaining('/data/upload/admin_id/ra/nd'),
       );
+      // Directory creation is now handled by StorageRepository.uploadFromStream
     });
   });
 

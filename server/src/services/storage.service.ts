@@ -113,16 +113,23 @@ export class StorageService extends BaseService {
         if (previous !== current) {
           this.logger.log(`Media location changed (from=${previous}, to=${current})`);
 
-          if (!path.startsWith(previous)) {
-            throw new Error(
-              'Detected an inconsistent media location. For more information, see https://docs.immich.app/errors#inconsistent-media-location',
-            );
-          }
+          // Skip migration for cloud storage (paths are unique and don't need migration)
+          const isCloudStorage = !previous.startsWith('/') || !current.startsWith('/');
 
-          this.logger.warn(
-            `Detected a change to media location, performing an automatic migration of file paths from ${previous} to ${current}, this may take awhile`,
-          );
-          await this.databaseRepository.migrateFilePaths(previous, current);
+          if (isCloudStorage) {
+            this.logger.log('Skipping path migration for cloud storage (paths are unique and self-contained)');
+          } else {
+            if (!path.startsWith(previous)) {
+              throw new Error(
+                'Detected an inconsistent media location. For more information, see https://docs.immich.app/errors#inconsistent-media-location',
+              );
+            }
+
+            this.logger.warn(
+              `Detected a change to media location, performing an automatic migration of file paths from ${previous} to ${current}, this may take awhile`,
+            );
+            await this.databaseRepository.migrateFilePaths(previous, current);
+          }
         }
       }
 
@@ -154,7 +161,14 @@ export class StorageService extends BaseService {
   }
 
   private async verifyReadAccess(folder: StorageFolder) {
-    const { internalPath, externalPath } = this.getMountFilePaths(folder);
+    const { internalPath, externalPath, isCloudStorage } = this.getMountFilePaths(folder);
+
+    // Skip mount check for cloud storage
+    if (isCloudStorage) {
+      this.logger.log(`Skipping mount check for cloud storage folder: ${folder}`);
+      return;
+    }
+
     try {
       await this.storageRepository.readFile(internalPath);
     } catch (error) {
@@ -164,7 +178,14 @@ export class StorageService extends BaseService {
   }
 
   private async createMountFile(folder: StorageFolder) {
-    const { folderPath, internalPath, externalPath } = this.getMountFilePaths(folder);
+    const { folderPath, internalPath, externalPath, isCloudStorage } = this.getMountFilePaths(folder);
+
+    // Skip mount file creation for cloud storage
+    if (isCloudStorage) {
+      this.logger.log(`Skipping mount file creation for cloud storage folder: ${folder}`);
+      return;
+    }
+
     try {
       this.storageRepository.mkdirSync(folderPath);
       await this.storageRepository.createFile(internalPath, Buffer.from(`${Date.now()}`));
@@ -179,7 +200,14 @@ export class StorageService extends BaseService {
   }
 
   private async verifyWriteAccess(folder: StorageFolder) {
-    const { internalPath, externalPath } = this.getMountFilePaths(folder);
+    const { internalPath, externalPath, isCloudStorage } = this.getMountFilePaths(folder);
+
+    // Skip mount check for cloud storage
+    if (isCloudStorage) {
+      this.logger.log(`Skipping write access check for cloud storage folder: ${folder}`);
+      return;
+    }
+
     try {
       await this.storageRepository.overwriteFile(internalPath, Buffer.from(`${Date.now()}`));
     } catch (error) {
@@ -193,6 +221,9 @@ export class StorageService extends BaseService {
     const internalPath = join(folderPath, '.immich');
     const externalPath = `<UPLOAD_LOCATION>/${folder}/.immich`;
 
-    return { folderPath, internalPath, externalPath };
+    // Check if this is cloud storage (path doesn't start with '/')
+    const isCloudStorage = !folderPath.startsWith('/');
+
+    return { folderPath, internalPath, externalPath, isCloudStorage };
   }
 }

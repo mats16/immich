@@ -169,6 +169,11 @@ const getEnv = (): EnvData => {
     username: dto.REDIS_USERNAME || undefined,
     password: dto.REDIS_PASSWORD || undefined,
     path: dto.REDIS_SOCKET || undefined,
+    ...(dto.IMMICH_REDIS_MAX_RETRIES_PER_REQUEST !== undefined && {
+      // -1 means unlimited retries (null in ioredis)
+      maxRetriesPerRequest:
+        dto.IMMICH_REDIS_MAX_RETRIES_PER_REQUEST === -1 ? null : dto.IMMICH_REDIS_MAX_RETRIES_PER_REQUEST,
+    }),
   };
 
   const redisUrl = dto.REDIS_URL;
@@ -253,6 +258,7 @@ const getEnv = (): EnvData => {
           removeOnComplete: true,
           removeOnFail: false,
         },
+        ...(dto.IMMICH_BULL_DRAINDELAY !== undefined && { drainDelay: dto.IMMICH_BULL_DRAINDELAY }),
       },
       queues: Object.values(QueueName).map((name) => ({ name })),
     },

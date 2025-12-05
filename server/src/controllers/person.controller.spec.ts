@@ -1,5 +1,6 @@
 import { PersonController } from 'src/controllers/person.controller';
 import { LoggingRepository } from 'src/repositories/logging.repository';
+import { StorageRepository } from 'src/repositories/storage.repository';
 import { PersonService } from 'src/services/person.service';
 import request from 'supertest';
 import { errorDto } from 'test/medium/responses';
@@ -9,11 +10,13 @@ import { automock, ControllerContext, controllerSetup, mockBaseService } from 't
 describe(PersonController.name, () => {
   let ctx: ControllerContext;
   const service = mockBaseService(PersonService);
+  const logger = automock(LoggingRepository, { strict: false });
 
   beforeAll(async () => {
     ctx = await controllerSetup(PersonController, [
       { provide: PersonService, useValue: service },
-      { provide: LoggingRepository, useValue: automock(LoggingRepository, { strict: false }) },
+      { provide: LoggingRepository, useValue: logger },
+      { provide: StorageRepository, useValue: new StorageRepository(logger) },
     ]);
     return () => ctx.close();
   });

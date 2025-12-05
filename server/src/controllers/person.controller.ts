@@ -31,6 +31,7 @@ import {
 import { ApiTag, Permission } from 'src/enum';
 import { Auth, Authenticated, FileResponse } from 'src/middleware/auth.guard';
 import { LoggingRepository } from 'src/repositories/logging.repository';
+import { StorageRepository } from 'src/repositories/storage.repository';
 import { PersonService } from 'src/services/person.service';
 import { sendFile } from 'src/utils/file';
 import { UUIDParamDto } from 'src/validation';
@@ -41,6 +42,7 @@ export class PersonController {
   constructor(
     private service: PersonService,
     private logger: LoggingRepository,
+    private storageRepository: StorageRepository,
   ) {
     this.logger.setContext(PersonController.name);
   }
@@ -153,7 +155,7 @@ export class PersonController {
     @Auth() auth: AuthDto,
     @Param() { id }: UUIDParamDto,
   ) {
-    await sendFile(res, next, () => this.service.getThumbnail(auth, id), this.logger);
+    await sendFile(res, next, () => this.service.getThumbnail(auth, id), this.logger, this.storageRepository);
   }
 
   @Put(':id/reassign')
