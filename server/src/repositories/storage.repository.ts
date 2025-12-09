@@ -23,16 +23,8 @@ import { LoggingRepository } from 'src/repositories/logging.repository';
 import { mimeTypes } from 'src/utils/mime-types';
 
 interface ParsedCloudPath {
-  host: string;
   bucket: string;
   key: string;
-}
-
-enum CloudProvider {
-  S3,
-  Azure,
-  GCS,
-  Unknown,
 }
 
 export interface WatchEvents {
@@ -72,94 +64,25 @@ export interface UploadOptions {
 
 @Injectable()
 export class StorageRepository {
-  private s3Clients: Map<string, S3Client> = new Map();
+  private s3Client: S3Client;
 
   constructor(private logger: LoggingRepository) {
     this.logger.setContext(StorageRepository.name);
+    // Initialize S3 client with default configuration
+    // AWS SDK automatically reads environment variables:
+    // - AWS_ENDPOINT_URL_S3 (or AWS_ENDPOINT_URL)
+    // - AWS_ACCESS_KEY_ID
+    // - AWS_SECRET_ACCESS_KEY
+    // - AWS_REGION (or AWS_DEFAULT_REGION)
+    this.s3Client = new S3Client({});
+    this.logger.log('S3 client initialized with default AWS configuration');
   }
 
   /**
-   * Get credentials and region based on endpoint hostname.
-   * - Tigris (fly.storage.tigris.dev, t3.storage.dev): TIGRIS_ACCESS_KEY_ID, TIGRIS_SECRET_ACCESS_KEY, region: auto
-   * - Wasabi (*.wasabisys.com): WASABI_ACCESS_KEY_ID, WASABI_SECRET_ACCESS_KEY, region extracted from endpoint
-   * - Amazon S3 (*.amazonaws.com): AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, region extracted from endpoint
-   */
-  private getS3Credentials(endpoint: string): { accessKeyId: string; secretAccessKey: string; region: string } {
-    let accessKeyId: string | undefined;
-    let secretAccessKey: string | undefined;
-    let region: string;
-    let provider: string;
-
-    // Check for Tigris endpoints (fly.storage.tigris.dev, t3.storage.dev)
-    if (endpoint === 'fly.storage.tigris.dev' || endpoint === 't3.storage.dev') {
-      accessKeyId = process.env.TIGRIS_ACCESS_KEY_ID;
-      secretAccessKey = process.env.TIGRIS_SECRET_ACCESS_KEY;
-      region = 'auto';
-      provider = 'Tigris';
-    }
-    // Check for Wasabi endpoints (*.wasabisys.com)
-    else if (endpoint.endsWith('.wasabisys.com')) {
-      accessKeyId = process.env.WASABI_ACCESS_KEY_ID;
-      secretAccessKey = process.env.WASABI_SECRET_ACCESS_KEY;
-      // Extract region from endpoint (e.g., s3.ap-northeast-1.wasabisys.com -> ap-northeast-1)
-      const match = endpoint.match(/^s3\.([^.]+)\.wasabisys\.com$/);
-      region = match ? match[1] : 'us-east-1';
-      provider = 'Wasabi';
-    }
-    // Check for Amazon S3 endpoints (*.amazonaws.com)
-    else if (endpoint.endsWith('.amazonaws.com')) {
-      accessKeyId = process.env.AWS_ACCESS_KEY_ID;
-      secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
-      // Extract region from endpoint (e.g., s3.ap-northeast-1.amazonaws.com -> ap-northeast-1)
-      const match = endpoint.match(/^s3\.([^.]+)\.amazonaws\.com$/);
-      region = match ? match[1] : 'us-east-1';
-      provider = 'AWS';
-    } else {
-      throw new Error(
-        `Unsupported S3 endpoint: ${endpoint}. ` +
-          `Supported providers: Tigris (fly.storage.tigris.dev, t3.storage.dev), Wasabi (*.wasabisys.com), AWS S3 (*.amazonaws.com)`,
-      );
-    }
-
-    if (!accessKeyId || !secretAccessKey) {
-      throw new Error(
-        `${provider} credentials not found for endpoint: ${endpoint}. ` +
-          `Please set the appropriate environment variables for this storage provider.`,
-      );
-    }
-
-    return { accessKeyId, secretAccessKey, region };
-  }
-
-  /**
-   * Get or create an S3 client for the given endpoint.
-   * S3 clients are cached per endpoint.
-   */
-  private getS3Client(endpoint: string): S3Client {
-    if (!this.s3Clients.has(endpoint)) {
-      const { accessKeyId, secretAccessKey, region } = this.getS3Credentials(endpoint);
-
-      const client = new S3Client({
-        region,
-        credentials: {
-          accessKeyId,
-          secretAccessKey,
-        },
-        endpoint: `https://${endpoint}`,
-        forcePathStyle: true, // Required for S3-compatible services
-      });
-
-      this.s3Clients.set(endpoint, client);
-      this.logger.log(`S3 client created for endpoint: ${endpoint} (region: ${region})`);
-    }
-
-    return this.s3Clients.get(endpoint)!;
-  }
-
-  /**
-   * Parse cloud storage path into host, bucket, and key components.
+   * Parse cloud storage path into bucket and key components.
    * Format: <host>/<bucket>/<key>
    * Example: s3.ap-northeast-1.amazonaws.com/my-bucket/upload/user-id/photo.jpg
+   * Note: The host portion is ignored as we use a single S3 client configured via environment variables
    */
   private parseCloudPath(filepath: string): ParsedCloudPath {
     const parts = filepath.split('/');
@@ -167,37 +90,11 @@ export class StorageRepository {
       throw new Error(`Invalid cloud storage path format: ${filepath}`);
     }
 
-    const host = parts[0];
+    // Skip host (parts[0]), extract bucket and key
     const bucket = parts[1];
     const key = parts.slice(2).join('/');
 
-    return { host, bucket, key };
-  }
-
-  /**
-   * Detect cloud provider from hostname.
-   * Note: For custom S3 endpoints (MinIO, etc.), the detection is based on the path format alone.
-   * The caller (StorageCore) is responsible for generating paths with the correct hostname.
-   */
-  private detectCloudProvider(host: string): CloudProvider {
-    // Amazon S3
-    if (host.endsWith('.amazonaws.com')) {
-      return CloudProvider.S3;
-    }
-
-    // Azure Blob Storage
-    if (host.endsWith('.blob.core.windows.net')) {
-      return CloudProvider.Azure;
-    }
-
-    // Google Cloud Storage
-    if (host === 'storage.googleapis.com') {
-      return CloudProvider.GCS;
-    }
-
-    // For custom endpoints (MinIO, etc.), we assume S3-compatible
-    // since the path format matches S3: host/bucket/key
-    return CloudProvider.S3;
+    return { bucket, key };
   }
 
   /**
@@ -228,22 +125,10 @@ export class StorageRepository {
 
   /**
    * Check if the given path is a remote storage path.
-   * Returns true if:
-   * 1. Path doesn't start with '/' (remote path), AND
-   * 2. Host indicates a supported remote provider (S3, Azure, GCS, etc.)
+   * Returns true if the path is in cloud storage format (not a local filesystem path).
    */
   private isRemote(filepath?: string): boolean {
-    if (!filepath || !this.isCloudPath(filepath)) {
-      return false;
-    }
-
-    try {
-      const { host } = this.parseCloudPath(filepath);
-      // For now, we primarily support S3-compatible storage
-      return this.detectCloudProvider(host) === CloudProvider.S3;
-    } catch {
-      return false;
-    }
+    return this.isCloudPath(filepath);
   }
 
   /**
@@ -289,8 +174,7 @@ export class StorageRepository {
         throw new Error(`Cannot copy between different remote storage buckets: ${sourceBucket} -> ${targetBucket}`);
       }
 
-      const { host } = this.parseCloudPath(target);
-      const client = this.getS3Client(host);
+      const client = this.s3Client;
 
       const copyCommand = new CopyObjectCommand({
         Bucket: targetBucket,
@@ -311,8 +195,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Get object metadata
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
 
     const command = new HeadObjectCommand({
       Bucket: bucket,
@@ -361,8 +245,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Upload buffer
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
 
     const command = new PutObjectCommand({
       Bucket: bucket,
@@ -428,8 +312,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Upload stream to S3
-    const { host, bucket, key } = this.parseCloudPath(destination);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(destination);
+    const client = this.s3Client;
     this.logger.debug(`Uploading file to S3: bucket=${bucket}, key=${key}`);
 
     try {
@@ -462,8 +346,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Upload buffer (overwrites if exists)
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
 
     const command = new PutObjectCommand({
       Bucket: bucket,
@@ -479,8 +363,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Upload buffer (overwrites existing file)
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
 
     const command = new PutObjectCommand({
       Bucket: bucket,
@@ -509,8 +393,7 @@ export class StorageRepository {
         throw new Error(`Cannot rename between different remote storage buckets: ${sourceBucket} -> ${targetBucket}`);
       }
 
-      const { host } = this.parseCloudPath(target);
-      const client = this.getS3Client(host);
+      const client = this.s3Client;
 
       const copyCommand = new CopyObjectCommand({
         Bucket: targetBucket,
@@ -535,8 +418,8 @@ export class StorageRepository {
 
     // Remote storage: Store timestamps in custom metadata
     // S3 doesn't support setting LastModified directly, so we use custom metadata
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
 
     // Get current object metadata
     const headCommand = new HeadObjectCommand({
@@ -584,8 +467,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Stream from S3
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
 
     const command = new GetObjectCommand({
       Bucket: bucket,
@@ -616,8 +499,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Download file
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
 
     const command = new GetObjectCommand({
       Bucket: bucket,
@@ -669,8 +552,8 @@ export class StorageRepository {
 
     // Remote storage: Check if object exists
     try {
-      const { host, bucket, key } = this.parseCloudPath(filepath);
-      const client = this.getS3Client(host);
+      const { bucket, key } = this.parseCloudPath(filepath);
+      const client = this.s3Client;
 
       const command = new HeadObjectCommand({
         Bucket: bucket,
@@ -699,8 +582,8 @@ export class StorageRepository {
 
     // Remote storage: Delete object
     try {
-      const { host, bucket, key } = this.parseCloudPath(file);
-      const client = this.getS3Client(host);
+      const { bucket, key } = this.parseCloudPath(file);
+      const client = this.s3Client;
 
       const command = new DeleteObjectCommand({
         Bucket: bucket,
@@ -842,8 +725,8 @@ export class StorageRepository {
     }
 
     // Remote storage: provide temp file, then upload to remote storage
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
     const tempFile = path.join(tmpdir(), `immich-write-${Date.now()}-${path.basename(filepath)}`);
 
     this.logger.debug(`Writing to temporary file for S3 upload: ${tempFile}`);
@@ -896,8 +779,8 @@ export class StorageRepository {
     }
 
     // Remote storage: download to temp file
-    const { host, bucket, key } = this.parseCloudPath(filepath);
-    const client = this.getS3Client(host);
+    const { bucket, key } = this.parseCloudPath(filepath);
+    const client = this.s3Client;
     const tempFile = path.join(tmpdir(), `immich-${Date.now()}-${path.basename(filepath)}`);
 
     this.logger.debug(`Downloading file from S3: bucket=${bucket}, key=${key}`);
