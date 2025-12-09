@@ -23,6 +23,7 @@ import { LoggingRepository } from 'src/repositories/logging.repository';
 import { mimeTypes } from 'src/utils/mime-types';
 
 interface ParsedCloudPath {
+  endpoint: string;
   bucket: string;
   key: string;
 }
@@ -64,63 +65,99 @@ export interface UploadOptions {
 
 @Injectable()
 export class StorageRepository {
-  private s3Client: S3Client;
+  private s3Clients: Map<string, S3Client> = new Map();
 
   constructor(private logger: LoggingRepository) {
     this.logger.setContext(StorageRepository.name);
-    // Initialize S3 client with default configuration
-    // AWS SDK automatically reads environment variables:
-    // - AWS_ENDPOINT_URL_S3 (or AWS_ENDPOINT_URL)
-    // - AWS_ACCESS_KEY_ID
-    // - AWS_SECRET_ACCESS_KEY
-    // - AWS_REGION (or AWS_DEFAULT_REGION)
-    this.s3Client = new S3Client({});
-    this.logger.log('S3 client initialized with default AWS configuration');
   }
 
   /**
-   * Parse cloud storage path into bucket and key components.
-   * Format: <host>/<bucket>/<key>
-   * Example: s3.ap-northeast-1.amazonaws.com/my-bucket/upload/user-id/photo.jpg
-   * Note: The host portion is ignored as we use a single S3 client configured via environment variables
+   * Get or create an S3 client for the given endpoint.
+   * S3 clients are cached per endpoint.
+   * Credentials are read from environment variables:
+   * - AWS_ACCESS_KEY_ID
+   * - AWS_SECRET_ACCESS_KEY
+   * - AWS_REGION (optional, defaults to 'auto')
    */
-  private parseCloudPath(filepath: string): ParsedCloudPath {
-    const parts = filepath.split('/');
-    if (parts.length < 3) {
-      throw new Error(`Invalid cloud storage path format: ${filepath}`);
+  private getS3Client(endpoint: string): S3Client {
+    if (!this.s3Clients.has(endpoint)) {
+      const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+      const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+      const region = process.env.AWS_REGION || 'auto';
+
+      if (!accessKeyId || !secretAccessKey) {
+        throw new Error(
+          'AWS credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables.',
+        );
+      }
+
+      const client = new S3Client({
+        region,
+        credentials: {
+          accessKeyId,
+          secretAccessKey,
+        },
+        endpoint,
+        forcePathStyle: true, // Required for S3-compatible services
+      });
+
+      this.s3Clients.set(endpoint, client);
+      this.logger.log(`S3 client created for endpoint: ${endpoint} (region: ${region})`);
     }
 
-    // Skip host (parts[0]), extract bucket and key
-    const bucket = parts[1];
-    const key = parts.slice(2).join('/');
+    return this.s3Clients.get(endpoint)!;
+  }
 
-    return { bucket, key };
+  /**
+   * Parse cloud storage path into endpoint, bucket, and key components.
+   * Expected format: https://endpoint.com/bucket/path/to/file.jpg
+   *
+   * Example:
+   * - https://82e063242560115e5d606dd969fcf936.r2.cloudflarestorage.com/my-bucket/upload/photo.jpg
+   */
+  private parseCloudPath(filepath: string): ParsedCloudPath {
+    if (!filepath.startsWith('http://') && !filepath.startsWith('https://')) {
+      throw new Error(`Invalid cloud storage path format: ${filepath} - must be a full URL (http:// or https://)`);
+    }
+
+    try {
+      const url = new URL(filepath);
+      // Extract endpoint with protocol: https://endpoint.com
+      const endpoint = `${url.protocol}//${url.host}`;
+      // Extract path without leading slash: /bucket/path/file.jpg -> bucket/path/file.jpg
+      const pathPart = url.pathname.substring(1);
+
+      // Split path into bucket and key
+      const parts = pathPart.split('/');
+      if (parts.length < 2) {
+        throw new Error(`Invalid cloud storage path format: ${filepath} - must have at least bucket/key`);
+      }
+
+      const bucket = parts[0];
+      const key = parts.slice(1).join('/');
+
+      return { endpoint, bucket, key };
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new Error(`Invalid cloud storage URL format: ${filepath}`);
+      }
+      throw error;
+    }
   }
 
   /**
    * Determine if the given path is for cloud storage (not local filesystem).
-   * Paths starting with '/' are local.
-   * Cloud paths must have format: host/bucket/path (e.g., s3.amazonaws.com/bucket/file)
+   * Cloud storage paths must be full URLs starting with http:// or https://
+   *
+   * Example: https://endpoint.com/bucket/path/to/file.jpg
    */
   private isCloudPath(filepath?: string): boolean {
     if (!filepath) {
       return false;
     }
 
-    // Local filesystem paths start with '/'
-    if (filepath.startsWith('/')) {
-      return false;
-    }
-
-    // Check if it looks like a cloud path (host/bucket/key format)
-    // Cloud paths should have at least 3 segments and first segment should contain a dot (domain)
-    const parts = filepath.split('/');
-    if (parts.length >= 3 && parts[0].includes('.')) {
-      return true;
-    }
-
-    // Otherwise it's a relative path, not a cloud path
-    return false;
+    // Full URL format (http:// or https://)
+    return filepath.startsWith('http://') || filepath.startsWith('https://');
   }
 
   /**
@@ -132,11 +169,11 @@ export class StorageRepository {
   }
 
   /**
-   * Get S3 bucket and key from the cloud path.
+   * Get S3 endpoint, bucket and key from the cloud path.
    */
-  private getS3BucketAndKey(filepath: string): { bucket: string; key: string } {
-    const { bucket, key } = this.parseCloudPath(filepath);
-    return { bucket, key };
+  private getS3BucketAndKey(filepath: string): { endpoint: string; bucket: string; key: string } {
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    return { endpoint, bucket, key };
   }
 
   async realpath(filepath: string) {
@@ -167,14 +204,18 @@ export class StorageRepository {
 
     if (sourceIsRemote && targetIsRemote) {
       // Both are remote: Use CopyObjectCommand
-      const { bucket: sourceBucket, key: sourceKey } = this.getS3BucketAndKey(source);
-      const { bucket: targetBucket, key: targetKey } = this.getS3BucketAndKey(target);
+      const { endpoint: sourceEndpoint, bucket: sourceBucket, key: sourceKey } = this.getS3BucketAndKey(source);
+      const { endpoint: targetEndpoint, bucket: targetBucket, key: targetKey } = this.getS3BucketAndKey(target);
+
+      if (sourceEndpoint !== targetEndpoint) {
+        throw new Error(`Cannot copy between different S3 endpoints: ${sourceEndpoint} -> ${targetEndpoint}`);
+      }
 
       if (sourceBucket !== targetBucket) {
         throw new Error(`Cannot copy between different remote storage buckets: ${sourceBucket} -> ${targetBucket}`);
       }
 
-      const client = this.s3Client;
+      const client = this.getS3Client(targetEndpoint);
 
       const copyCommand = new CopyObjectCommand({
         Bucket: targetBucket,
@@ -195,8 +236,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Get object metadata
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
 
     const command = new HeadObjectCommand({
       Bucket: bucket,
@@ -245,8 +286,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Upload buffer
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
 
     const command = new PutObjectCommand({
       Bucket: bucket,
@@ -312,8 +353,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Upload stream to S3
-    const { bucket, key } = this.parseCloudPath(destination);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(destination);
+    const client = this.getS3Client(endpoint);
     this.logger.debug(`Uploading file to S3: bucket=${bucket}, key=${key}`);
 
     try {
@@ -346,8 +387,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Upload buffer (overwrites if exists)
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
 
     const command = new PutObjectCommand({
       Bucket: bucket,
@@ -363,8 +404,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Upload buffer (overwrites existing file)
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
 
     const command = new PutObjectCommand({
       Bucket: bucket,
@@ -386,14 +427,18 @@ export class StorageRepository {
 
     if (sourceIsRemote && targetIsRemote) {
       // Both are remote: Use copy and delete
-      const { bucket: sourceBucket, key: sourceKey } = this.getS3BucketAndKey(source);
-      const { bucket: targetBucket, key: targetKey } = this.getS3BucketAndKey(target);
+      const { endpoint: sourceEndpoint, bucket: sourceBucket, key: sourceKey } = this.getS3BucketAndKey(source);
+      const { endpoint: targetEndpoint, bucket: targetBucket, key: targetKey } = this.getS3BucketAndKey(target);
+
+      if (sourceEndpoint !== targetEndpoint) {
+        throw new Error(`Cannot rename between different S3 endpoints: ${sourceEndpoint} -> ${targetEndpoint}`);
+      }
 
       if (sourceBucket !== targetBucket) {
         throw new Error(`Cannot rename between different remote storage buckets: ${sourceBucket} -> ${targetBucket}`);
       }
 
-      const client = this.s3Client;
+      const client = this.getS3Client(targetEndpoint);
 
       const copyCommand = new CopyObjectCommand({
         Bucket: targetBucket,
@@ -418,8 +463,8 @@ export class StorageRepository {
 
     // Remote storage: Store timestamps in custom metadata
     // S3 doesn't support setting LastModified directly, so we use custom metadata
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
 
     // Get current object metadata
     const headCommand = new HeadObjectCommand({
@@ -467,8 +512,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Stream from S3
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
 
     const command = new GetObjectCommand({
       Bucket: bucket,
@@ -499,8 +544,8 @@ export class StorageRepository {
     }
 
     // Remote storage: Download file
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
 
     const command = new GetObjectCommand({
       Bucket: bucket,
@@ -552,8 +597,8 @@ export class StorageRepository {
 
     // Remote storage: Check if object exists
     try {
-      const { bucket, key } = this.parseCloudPath(filepath);
-      const client = this.s3Client;
+      const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+      const client = this.getS3Client(endpoint);
 
       const command = new HeadObjectCommand({
         Bucket: bucket,
@@ -582,8 +627,8 @@ export class StorageRepository {
 
     // Remote storage: Delete object
     try {
-      const { bucket, key } = this.parseCloudPath(file);
-      const client = this.s3Client;
+      const { endpoint, bucket, key } = this.parseCloudPath(file);
+      const client = this.getS3Client(endpoint);
 
       const command = new DeleteObjectCommand({
         Bucket: bucket,
@@ -725,8 +770,8 @@ export class StorageRepository {
     }
 
     // Remote storage: provide temp file, then upload to remote storage
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
     const tempFile = path.join(tmpdir(), `immich-write-${Date.now()}-${path.basename(filepath)}`);
 
     this.logger.debug(`Writing to temporary file for S3 upload: ${tempFile}`);
@@ -779,8 +824,8 @@ export class StorageRepository {
     }
 
     // Remote storage: download to temp file
-    const { bucket, key } = this.parseCloudPath(filepath);
-    const client = this.s3Client;
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
     const tempFile = path.join(tmpdir(), `immich-${Date.now()}-${path.basename(filepath)}`);
 
     this.logger.debug(`Downloading file from S3: bucket=${bucket}, key=${key}`);
