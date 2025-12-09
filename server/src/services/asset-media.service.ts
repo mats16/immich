@@ -189,6 +189,21 @@ export class AssetMediaService extends BaseService {
 
     const asset = await this.findOrFail(id);
 
+    // Check if this is a remote storage path
+    const isRemote = asset.originalPath.startsWith('https://');
+
+    if (isRemote) {
+      // Generate presigned URL for remote storage and return redirect
+      const redirectUrl = await this.storageRepository.getSignedUrl(asset.originalPath, 3600);
+      return new ImmichFileResponse({
+        path: asset.originalPath,
+        fileName: asset.originalFileName,
+        contentType: mimeTypes.lookup(asset.originalPath),
+        cacheControl: CacheControl.PrivateWithCache,
+        redirectUrl,
+      });
+    }
+
     return new ImmichFileResponse({
       path: asset.originalPath,
       fileName: asset.originalFileName,
@@ -231,6 +246,21 @@ export class AssetMediaService extends BaseService {
     fileName += `_${size}`;
     fileName += getFilenameExtension(filepath);
 
+    // Check if this is a remote storage path
+    const isRemote = filepath.startsWith('https://');
+
+    if (isRemote) {
+      // Generate presigned URL for remote storage and return redirect
+      const redirectUrl = await this.storageRepository.getSignedUrl(filepath, 3600);
+      return new ImmichFileResponse({
+        fileName,
+        path: filepath,
+        contentType: mimeTypes.lookup(filepath),
+        cacheControl: CacheControl.PrivateWithCache,
+        redirectUrl,
+      });
+    }
+
     return new ImmichFileResponse({
       fileName,
       path: filepath,
@@ -249,6 +279,20 @@ export class AssetMediaService extends BaseService {
     }
 
     const filepath = asset.encodedVideoPath || asset.originalPath;
+
+    // Check if this is a remote storage path
+    const isRemote = filepath.startsWith('https://');
+
+    if (isRemote) {
+      // Generate presigned URL for remote storage and return redirect
+      const redirectUrl = await this.storageRepository.getSignedUrl(filepath, 3600);
+      return new ImmichFileResponse({
+        path: filepath,
+        contentType: mimeTypes.lookup(filepath),
+        cacheControl: CacheControl.PrivateWithCache,
+        redirectUrl,
+      });
+    }
 
     return new ImmichFileResponse({
       path: filepath,

@@ -164,6 +164,20 @@ export class PersonService extends BaseService {
       throw new NotFoundException();
     }
 
+    // Check if this is a remote storage path
+    const isRemote = person.thumbnailPath.startsWith('https://');
+
+    if (isRemote) {
+      // Generate presigned URL for remote storage and return redirect
+      const redirectUrl = await this.storageRepository.getSignedUrl(person.thumbnailPath, 3600);
+      return new ImmichFileResponse({
+        path: person.thumbnailPath,
+        contentType: mimeTypes.lookup(person.thumbnailPath),
+        cacheControl: CacheControl.PrivateWithoutCache,
+        redirectUrl,
+      });
+    }
+
     return new ImmichFileResponse({
       path: person.thumbnailPath,
       contentType: mimeTypes.lookup(person.thumbnailPath),

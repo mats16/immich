@@ -25,6 +25,7 @@ export class ImmichFileResponse {
   public readonly contentType!: string;
   public readonly cacheControl!: CacheControl;
   public readonly fileName?: string;
+  public readonly redirectUrl?: string;
 
   constructor(response: ImmichFileResponse) {
     Object.assign(this, response);
@@ -66,6 +67,13 @@ export const sendFile = async (
     if (cacheControlHeader) {
       // set the header to Cache-Control
       res.set('Cache-Control', cacheControlHeader);
+    }
+
+    // Check if this is a redirect response (for remote storage)
+    if (file.redirectUrl) {
+      // Return 302 redirect to presigned URL
+      res.redirect(302, file.redirectUrl);
+      return;
     }
 
     res.header('Content-Type', file.contentType);

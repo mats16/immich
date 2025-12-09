@@ -124,6 +124,20 @@ export class UserService extends BaseService {
       throw new NotFoundException('User does not have a profile image');
     }
 
+    // Check if this is a remote storage path
+    const isRemote = user.profileImagePath.startsWith('https://');
+
+    if (isRemote) {
+      // Generate presigned URL for remote storage and return redirect
+      const redirectUrl = await this.storageRepository.getSignedUrl(user.profileImagePath, 3600);
+      return new ImmichFileResponse({
+        path: user.profileImagePath,
+        contentType: 'image/jpeg',
+        cacheControl: CacheControl.None,
+        redirectUrl,
+      });
+    }
+
     return new ImmichFileResponse({
       path: user.profileImagePath,
       contentType: 'image/jpeg',
