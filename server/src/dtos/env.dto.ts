@@ -21,11 +21,6 @@ export class EnvDto {
   @Optional()
   IMMICH_BUILD_URL?: string;
 
-  @IsInt()
-  @Optional()
-  @Type(() => Number)
-  IMMICH_BULL_DRAINDELAY?: number;
-
   @IsString()
   @Optional()
   IMMICH_BUILD_IMAGE?: string;
@@ -210,9 +205,4 @@ export class EnvDto {
   @IsString()
   @Optional()
   REDIS_URL?: string;
-
-  @IsInt()
-  @Optional()
-  @Type(() => Number)
-  IMMICH_REDIS_MAX_RETRIES_PER_REQUEST?: number;
 }
