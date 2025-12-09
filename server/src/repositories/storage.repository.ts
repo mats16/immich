@@ -116,8 +116,8 @@ export class StorageRepository {
    * - https://82e063242560115e5d606dd969fcf936.r2.cloudflarestorage.com/my-bucket/upload/photo.jpg
    */
   private parseCloudPath(filepath: string): ParsedCloudPath {
-    if (!filepath.startsWith('http://') && !filepath.startsWith('https://')) {
-      throw new Error(`Invalid cloud storage path format: ${filepath} - must be a full URL (http:// or https://)`);
+    if (!filepath.startsWith('https://')) {
+      throw new Error(`Invalid cloud storage path format: ${filepath} - must be a full URL (https://)`);
     }
 
     try {
@@ -147,7 +147,7 @@ export class StorageRepository {
 
   /**
    * Determine if the given path is for cloud storage (not local filesystem).
-   * Cloud storage paths must be full URLs starting with http:// or https://
+   * Cloud storage paths must be full URLs starting with https://
    *
    * Example: https://endpoint.com/bucket/path/to/file.jpg
    */
@@ -156,8 +156,8 @@ export class StorageRepository {
       return false;
     }
 
-    // Full URL format (http:// or https://)
-    return filepath.startsWith('http://') || filepath.startsWith('https://');
+    // Full URL format (https://)
+    return filepath.startsWith('https://');
   }
 
   /**

@@ -113,7 +113,7 @@ export class StorageCore {
 
     const firstSegment = segments[0];
     // Check if it's a URL
-    if (firstSegment.startsWith('http://') || firstSegment.startsWith('https://')) {
+    if (firstSegment.startsWith('https://')) {
       // URL: Join with forward slashes
       return segments.reduce((acc, segment) => {
         // Remove trailing slashes from accumulator
@@ -146,7 +146,7 @@ export class StorageCore {
 
   static isAndroidMotionPath(originalPath: string) {
     // For cloud storage paths (full URL format), check if it contains the EncodedVideo folder in the path
-    if (originalPath.startsWith('http://') || originalPath.startsWith('https://')) {
+    if (originalPath.startsWith('https://')) {
       // Cloud storage path: check if path contains the encoded video folder name
       return originalPath.includes(`/${StorageFolder.EncodedVideo}/`);
     }
@@ -156,7 +156,7 @@ export class StorageCore {
 
   static isImmichPath(path: string) {
     // For cloud storage paths (full URL format)
-    if (path.startsWith('http://') || path.startsWith('https://')) {
+    if (path.startsWith('https://')) {
       // Cloud storage: check if it starts with the media location URL
       const mediaLocation = StorageCore.getMediaLocation();
       return path.startsWith(mediaLocation);
@@ -322,8 +322,8 @@ export class StorageCore {
 
   ensureFolders(input: string) {
     // Only create directories for local filesystem paths
-    // Cloud paths are full URLs (http:// or https://) and don't need directory creation
-    const isCloudPath = input.startsWith('http://') || input.startsWith('https://');
+    // Cloud paths are full URLs (https://) and don't need directory creation
+    const isCloudPath = input.startsWith('https://');
 
     if (!isCloudPath) {
       this.storageRepository.mkdirSync(dirname(input));

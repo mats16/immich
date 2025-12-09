@@ -54,7 +54,7 @@ export class EnvDto {
   IMMICH_LOG_LEVEL?: LogLevel;
 
   @Optional()
-  @Matches(/^(\/|https?:\/\/)/i, {
+  @Matches(/^(\/|https:\/\/)/i, {
     message:
       'IMMICH_MEDIA_LOCATION must be an absolute path or cloud storage URL (e.g., /data or https://endpoint.com/bucket/path)',
   })
