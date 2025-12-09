@@ -313,6 +313,7 @@ export class StorageRepository {
       Bucket: bucket,
       Key: key,
       Body: buffer,
+      ContentType: mimeTypes.lookup(filepath),
     });
     await client.send(command);
   }
@@ -384,6 +385,7 @@ export class StorageRepository {
           Bucket: bucket,
           Key: key,
           Body: stream,
+          ContentType: mimeTypes.lookup(destination),
         },
       });
 
@@ -414,6 +416,7 @@ export class StorageRepository {
       Bucket: bucket,
       Key: key,
       Body: buffer,
+      ContentType: mimeTypes.lookup(filepath),
     });
     await client.send(command);
   }
@@ -431,6 +434,7 @@ export class StorageRepository {
       Bucket: bucket,
       Key: key,
       Body: buffer,
+      ContentType: mimeTypes.lookup(filepath),
     });
     await client.send(command);
   }
@@ -808,6 +812,7 @@ export class StorageRepository {
         Bucket: bucket,
         Key: key,
         Body: buffer,
+        ContentType: mimeTypes.lookup(filepath),
       });
       await client.send(command);
 
