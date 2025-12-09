@@ -146,26 +146,19 @@ export class StorageRepository {
   }
 
   /**
-   * Determine if the given path is for cloud storage (not local filesystem).
-   * Cloud storage paths must be full URLs starting with https://
+   * Check if the given path is a remote storage path.
+   * Returns true if the path is in cloud storage format (not a local filesystem path).
+   * Remote storage paths must be full URLs starting with https://
    *
    * Example: https://endpoint.com/bucket/path/to/file.jpg
    */
-  private isCloudPath(filepath?: string): boolean {
+  private isRemote(filepath?: string): boolean {
     if (!filepath) {
       return false;
     }
 
     // Full URL format (https://)
     return filepath.startsWith('https://');
-  }
-
-  /**
-   * Check if the given path is a remote storage path.
-   * Returns true if the path is in cloud storage format (not a local filesystem path).
-   */
-  private isRemote(filepath?: string): boolean {
-    return this.isCloudPath(filepath);
   }
 
   /**

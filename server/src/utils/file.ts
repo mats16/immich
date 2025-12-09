@@ -40,25 +40,13 @@ const cacheControlHeaders: Record<CacheControl, string | null> = {
 };
 
 /**
- * Check if the given path is a cloud storage path (not local filesystem).
- * Cloud paths have format: host/bucket/key (e.g., s3.amazonaws.com/bucket/file)
- * Local paths start with '/'
+ * Check if the given path is a remote storage path (not local filesystem).
+ * Remote storage paths must be full URLs starting with https://
+ *
+ * Example: https://endpoint.com/bucket/path/to/file.jpg
  */
-function isCloudPath(filepath: string): boolean {
-  // Local filesystem paths start with '/'
-  if (filepath.startsWith('/')) {
-    return false;
-  }
-
-  // Check if it looks like a cloud path (host/bucket/key format)
-  // Cloud paths should have at least 3 segments and first segment should contain a dot (domain)
-  const parts = filepath.split('/');
-  if (parts.length >= 3 && parts[0].includes('.')) {
-    return true;
-  }
-
-  // Otherwise it's a relative path, not a cloud path
-  return false;
+function isRemote(filepath: string): boolean {
+  return filepath.startsWith('https://');
 }
 
 export const sendFile = async (
@@ -85,9 +73,9 @@ export const sendFile = async (
       res.header('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
     }
 
-    // Check if this is a cloud storage path
-    if (isCloudPath(file.path) && storageRepository) {
-      // Stream from cloud storage
+    // Check if this is a remote storage path
+    if (isRemote(file.path) && storageRepository) {
+      // Stream from remote storage
       const { stream, length, type } = await storageRepository.createReadStream(file.path, file.contentType);
 
       if (length) {
@@ -103,7 +91,7 @@ export const sendFile = async (
       // Handle stream errors
       stream.on('error', (error) => {
         if (!res.headersSent && !isConnectionAborted(error)) {
-          logger.error(`Error streaming file from cloud storage: ${error}`, error.stack);
+          logger.error(`Error streaming file from remote storage: ${error}`, error.stack);
           res.header('Cache-Control', 'none');
           next(error);
         }

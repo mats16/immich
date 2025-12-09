@@ -322,13 +322,13 @@ export class StorageCore {
 
   ensureFolders(input: string) {
     // Only create directories for local filesystem paths
-    // Cloud paths are full URLs (https://) and don't need directory creation
-    const isCloudPath = input.startsWith('https://');
+    // Remote storage paths are full URLs (https://) and don't need directory creation
+    const isRemote = input.startsWith('https://');
 
-    if (!isCloudPath) {
+    if (!isRemote) {
       this.storageRepository.mkdirSync(dirname(input));
     }
-    // For cloud storage paths, no directory creation needed
+    // For remote storage paths, no directory creation needed
   }
 
   removeEmptyDirs(folder: StorageFolder) {
