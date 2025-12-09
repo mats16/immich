@@ -289,7 +289,11 @@ export class MediaRepository {
 
   transcode(input: string, output: string | Writable, options: TranscodeCommand): Promise<void> {
     return this.storageRepository.withLocalPath(input, async (localInput) => {
-      if (!options.twoPass) {
+      // Handle Writable stream output (no remote storage support for streams)
+      if (typeof output !== 'string') {
+        if (options.twoPass) {
+          throw new TypeError('Two-pass transcoding does not support writing to a stream');
+        }
         return new Promise<void>((resolve, reject) => {
           this.configureFfmpegCall(localInput, output, options)
             .on('error', reject)
@@ -298,13 +302,21 @@ export class MediaRepository {
         });
       }
 
-      if (typeof output !== 'string') {
-        throw new TypeError('Two-pass transcoding does not support writing to a stream');
+      // For file output, use writeFile to handle both local and remote storage
+      if (!options.twoPass) {
+        return this.storageRepository.writeFile(output, async (localOutput) => {
+          return new Promise<void>((resolve, reject) => {
+            this.configureFfmpegCall(localInput, localOutput, options)
+              .on('error', reject)
+              .on('end', () => resolve())
+              .run();
+          });
+        });
       }
 
       // two-pass allows for precise control of bitrate at the cost of running twice
       // recommended for vp9 for better quality and compression
-      return this.storageRepository.withLocalPath(output, async (localOutput) => {
+      return this.storageRepository.writeFile(output, async (localOutput) => {
         return new Promise<void>((resolve, reject) => {
           // first pass output is not saved as only the .log file is needed
           this.configureFfmpegCall(localInput, '/dev/null', options)
