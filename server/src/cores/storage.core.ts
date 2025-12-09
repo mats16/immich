@@ -89,66 +89,64 @@ export class StorageCore {
     mediaLocation = location;
   }
 
-  /**
-   * Add storage backend prefix to the path.
-   * For cloud storage: IMMICH_MEDIA_LOCATION already contains host/bucket (e.g., "fly.storage.tigris.dev/bucket")
-   * For local storage: IMMICH_MEDIA_LOCATION is a directory path (e.g., "/data")
-   */
-  static addStoragePrefix(localPath: string): string {
-    const mediaLocation = StorageCore.getMediaLocation();
-
-    // Check if media location is a cloud path (doesn't start with '/')
-    if (!mediaLocation.startsWith('/')) {
-      // Cloud storage: IMMICH_MEDIA_LOCATION contains host/bucket
-      // Remove leading slash from local path
-      const path = localPath.startsWith('/') ? localPath.slice(1) : localPath;
-      // Return: <host>/<bucket>/<path>
-      return `${mediaLocation}/${path}`;
-    }
-
-    // Local storage: return path as-is
-    return localPath;
-  }
-
   static getFolderLocation(folder: StorageFolder, userId: string) {
-    return join(StorageCore.getBaseFolder(folder), userId);
+    return StorageCore.joinPath(StorageCore.getBaseFolder(folder), userId);
   }
 
   static getLibraryFolder(user: { storageLabel: string | null; id: string }) {
-    return join(StorageCore.getBaseFolder(StorageFolder.Library), user.storageLabel || user.id);
+    return StorageCore.joinPath(StorageCore.getBaseFolder(StorageFolder.Library), user.storageLabel || user.id);
   }
 
   static getBaseFolder(folder: StorageFolder) {
-    return join(StorageCore.getMediaLocation(), folder);
+    return StorageCore.joinPath(StorageCore.getMediaLocation(), folder);
+  }
+
+  /**
+   * Join path segments, handling both local filesystem paths and cloud storage URLs.
+   * For URLs, uses forward slash separator.
+   * For local paths, uses platform-specific path separator.
+   */
+  private static joinPath(...segments: string[]): string {
+    if (segments.length === 0) {
+      return '';
+    }
+
+    const firstSegment = segments[0];
+    // Check if it's a URL
+    if (firstSegment.startsWith('http://') || firstSegment.startsWith('https://')) {
+      // URL: Join with forward slashes
+      return segments.reduce((acc, segment) => {
+        // Remove trailing slashes from accumulator
+        const cleanAcc = acc.replace(/\/+$/, '');
+        // Remove leading slashes from segment
+        const cleanSegment = segment.replace(/^\/+/, '');
+        return cleanSegment ? `${cleanAcc}/${cleanSegment}` : cleanAcc;
+      });
+    }
+
+    // Local filesystem path: Use platform-specific join
+    return join(...segments);
   }
 
   static getPersonThumbnailPath(person: ThumbnailPathEntity) {
-    const localPath = StorageCore.getNestedPath(StorageFolder.Thumbnails, person.ownerId, `${person.id}.jpeg`);
-    return StorageCore.addStoragePrefix(localPath);
+    return StorageCore.getNestedPath(StorageFolder.Thumbnails, person.ownerId, `${person.id}.jpeg`);
   }
 
   static getImagePath(asset: ThumbnailPathEntity, type: GeneratedImageType, format: 'jpeg' | 'webp') {
-    const localPath = StorageCore.getNestedPath(
-      StorageFolder.Thumbnails,
-      asset.ownerId,
-      `${asset.id}-${type}.${format}`,
-    );
-    return StorageCore.addStoragePrefix(localPath);
+    return StorageCore.getNestedPath(StorageFolder.Thumbnails, asset.ownerId, `${asset.id}-${type}.${format}`);
   }
 
   static getEncodedVideoPath(asset: ThumbnailPathEntity) {
-    const localPath = StorageCore.getNestedPath(StorageFolder.EncodedVideo, asset.ownerId, `${asset.id}.mp4`);
-    return StorageCore.addStoragePrefix(localPath);
+    return StorageCore.getNestedPath(StorageFolder.EncodedVideo, asset.ownerId, `${asset.id}.mp4`);
   }
 
   static getAndroidMotionPath(asset: ThumbnailPathEntity, uuid: string) {
-    const localPath = StorageCore.getNestedPath(StorageFolder.EncodedVideo, asset.ownerId, `${uuid}-MP.mp4`);
-    return StorageCore.addStoragePrefix(localPath);
+    return StorageCore.getNestedPath(StorageFolder.EncodedVideo, asset.ownerId, `${uuid}-MP.mp4`);
   }
 
   static isAndroidMotionPath(originalPath: string) {
-    // For cloud storage paths, check if it contains the EncodedVideo folder in the path
-    if (!originalPath.startsWith('/')) {
+    // For cloud storage paths (full URL format), check if it contains the EncodedVideo folder in the path
+    if (originalPath.startsWith('http://') || originalPath.startsWith('https://')) {
       // Cloud storage path: check if path contains the encoded video folder name
       return originalPath.includes(`/${StorageFolder.EncodedVideo}/`);
     }
@@ -157,17 +155,11 @@ export class StorageCore {
   }
 
   static isImmichPath(path: string) {
-    // For cloud storage paths (not starting with '/'), check if they contain a host/bucket pattern
-    // Cloud paths should have format: host/bucket/path (e.g., s3.amazonaws.com/bucket/file)
-    if (!path.startsWith('/')) {
-      // Check if it looks like a cloud path (contains at least two path segments)
-      const parts = path.split('/');
-      if (parts.length >= 3 && parts[0].includes('.')) {
-        // Likely a cloud path with hostname
-        return true;
-      }
-      // Otherwise it's a relative path, not a cloud path
-      return false;
+    // For cloud storage paths (full URL format)
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      // Cloud storage: check if it starts with the media location URL
+      const mediaLocation = StorageCore.getMediaLocation();
+      return path.startsWith(mediaLocation);
     }
 
     // For local filesystem paths, check if they're under the media location
@@ -330,8 +322,8 @@ export class StorageCore {
 
   ensureFolders(input: string) {
     // Only create directories for local filesystem paths
-    // Cloud paths have format: host/bucket/path and don't need directory creation
-    const isCloudPath = !input.startsWith('/') && input.split('/').length >= 3 && input.split('/')[0].includes('.');
+    // Cloud paths are full URLs (http:// or https://) and don't need directory creation
+    const isCloudPath = input.startsWith('http://') || input.startsWith('https://');
 
     if (!isCloudPath) {
       this.storageRepository.mkdirSync(dirname(input));
@@ -370,14 +362,18 @@ export class StorageCore {
   }
 
   static getNestedFolder(folder: StorageFolder, ownerId: string, filename: string): string {
-    return join(StorageCore.getFolderLocation(folder, ownerId), filename.slice(0, 2), filename.slice(2, 4));
+    return StorageCore.joinPath(
+      StorageCore.getFolderLocation(folder, ownerId),
+      filename.slice(0, 2),
+      filename.slice(2, 4),
+    );
   }
 
   static getNestedPath(folder: StorageFolder, ownerId: string, filename: string): string {
-    return join(this.getNestedFolder(folder, ownerId, filename), filename);
+    return StorageCore.joinPath(this.getNestedFolder(folder, ownerId, filename), filename);
   }
 
   static getTempPathInDir(dir: string): string {
-    return join(dir, `${randomUUID()}.tmp`);
+    return StorageCore.joinPath(dir, `${randomUUID()}.tmp`);
   }
 }

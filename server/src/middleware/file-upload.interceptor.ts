@@ -113,10 +113,7 @@ export class FileUploadInterceptor implements NestInterceptor {
     const uploadRequest = asUploadRequest(request, file);
     const folder = this.assetService.getUploadFolder(uploadRequest);
     const filename = this.assetService.getUploadFilename(uploadRequest);
-    const localPath = `${folder}/${filename}`;
-
-    // Add storage backend prefix (S3 or local)
-    const destination = StorageCore.addStoragePrefix(localPath);
+    const destination = `${folder}/${filename}`;
 
     // Determine if we should compute checksum (only for asset files, not profile images)
     const shouldComputeChecksum = this.isAssetUploadFile(file);

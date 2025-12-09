@@ -113,8 +113,7 @@ export class AssetMediaService extends BaseService {
   async onUploadError(request: AuthRequest, file: Express.Multer.File) {
     const uploadFilename = this.getUploadFilename(asUploadRequest(request, file));
     const uploadFolder = this.getUploadFolder(asUploadRequest(request, file));
-    const localPath = `${uploadFolder}/${uploadFilename}`;
-    const uploadPath = StorageCore.addStoragePrefix(localPath);
+    const uploadPath = `${uploadFolder}/${uploadFilename}`;
 
     await this.jobRepository.queue({ name: JobName.FileDelete, data: { files: [uploadPath] } });
   }

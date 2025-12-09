@@ -298,9 +298,7 @@ export class StorageTemplateService extends BaseService {
         return source;
       }
 
-      // Add storage prefix to destination for comparison with source
-      const destinationWithPrefix = StorageCore.addStoragePrefix(destination);
-      if (source === destinationWithPrefix) {
+      if (source === destination) {
         return source;
       }
 
@@ -318,10 +316,8 @@ export class StorageTemplateService extends BaseService {
        * The lines below will be used to check if the differences between the source and destination is only the
        * +7 suffix, and if so, it will be considered as already migrated.
        */
-      // Add storage prefix to fullPath for comparison with source (which may be an S3 path)
-      const fullPathWithPrefix = StorageCore.addStoragePrefix(fullPath);
-      if (source.startsWith(fullPathWithPrefix) && source.endsWith(`.${extension}`)) {
-        const diff = source.replace(fullPathWithPrefix, '').replace(`.${extension}`, '');
+      if (source.startsWith(fullPath) && source.endsWith(`.${extension}`)) {
+        const diff = source.replace(fullPath, '').replace(`.${extension}`, '');
         const hasDuplicationAnnotation = /^\+\d+$/.test(diff);
         if (hasDuplicationAnnotation) {
           return source;
@@ -331,9 +327,7 @@ export class StorageTemplateService extends BaseService {
       let duplicateCount = 0;
 
       while (true) {
-        // Check existence with storage prefix for S3 compatibility
-        const destinationWithPrefix = StorageCore.addStoragePrefix(destination);
-        const exists = await this.storageRepository.checkFileExists(destinationWithPrefix);
+        const exists = await this.storageRepository.checkFileExists(destination);
         if (!exists) {
           break;
         }
@@ -342,8 +336,7 @@ export class StorageTemplateService extends BaseService {
         destination = `${fullPath}+${duplicateCount}.${extension}`;
       }
 
-      // Add storage backend prefix (S3 or local)
-      return StorageCore.addStoragePrefix(destination);
+      return destination;
     } catch (error: any) {
       this.logger.error(`Unable to get template path for ${filename}: ${error}`);
       return asset.originalPath;
