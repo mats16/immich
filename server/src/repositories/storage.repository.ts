@@ -500,10 +500,12 @@ export class StorageRepository {
     const headResponse = await client.send(headCommand);
 
     // Copy object with updated metadata (MetadataDirective: REPLACE)
+    // IMPORTANT: When using REPLACE, we must preserve ContentType and other system metadata
     const copyCommand = new CopyObjectCommand({
       Bucket: bucket,
       CopySource: `${bucket}/${key}`,
       Key: key,
+      ContentType: headResponse.ContentType || mimeTypes.lookup(key),
       Metadata: {
         ...(headResponse.Metadata || {}),
         'immich-last-accessed': atime.toISOString(),
