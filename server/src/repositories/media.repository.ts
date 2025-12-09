@@ -248,100 +248,101 @@ export class MediaRepository {
   }
 
   async probe(input: string, options?: ProbeOptions): Promise<VideoInfo> {
-    return this.storageRepository.withLocalPath(input, async (localPath) => {
-      const results = await probe(localPath, options?.countFrames ? ['-count_packets'] : []); // gets frame count quickly: https://stackoverflow.com/a/28376817
-      return {
-        format: {
-          formatName: results.format.format_name,
-          formatLongName: results.format.format_long_name,
-          duration: this.parseFloat(results.format.duration),
-          bitrate: this.parseInt(results.format.bit_rate),
-        },
-        videoStreams: results.streams
-          .filter((stream) => stream.codec_type === 'video')
-          .filter((stream) => !stream.disposition?.attached_pic)
-          .map((stream) => ({
-            index: stream.index,
-            height: this.parseInt(stream.height),
-            width: this.parseInt(stream.width),
-            codecName: stream.codec_name === 'h265' ? 'hevc' : stream.codec_name,
-            codecType: stream.codec_type,
-            frameCount: this.parseInt(options?.countFrames ? stream.nb_read_packets : stream.nb_frames),
-            rotation: this.parseInt(stream.rotation),
-            isHDR: stream.color_transfer === 'smpte2084' || stream.color_transfer === 'arib-std-b67',
-            bitrate: this.parseInt(stream.bit_rate),
-            pixelFormat: stream.pix_fmt || 'yuv420p',
-            colorPrimaries: stream.color_primaries,
-            colorSpace: stream.color_space,
-            colorTransfer: stream.color_transfer,
-          })),
-        audioStreams: results.streams
-          .filter((stream) => stream.codec_type === 'audio')
-          .map((stream) => ({
-            index: stream.index,
-            codecType: stream.codec_type,
-            codecName: stream.codec_name,
-            bitrate: this.parseInt(stream.bit_rate),
-          })),
-      };
-    });
+    // For remote storage, use presigned URL to avoid downloading the entire file
+    const inputPath = await this.storageRepository.getSignedUrl(input);
+    const results = await probe(inputPath, options?.countFrames ? ['-count_packets'] : []); // gets frame count quickly: https://stackoverflow.com/a/28376817
+    return {
+      format: {
+        formatName: results.format.format_name,
+        formatLongName: results.format.format_long_name,
+        duration: this.parseFloat(results.format.duration),
+        bitrate: this.parseInt(results.format.bit_rate),
+      },
+      videoStreams: results.streams
+        .filter((stream) => stream.codec_type === 'video')
+        .filter((stream) => !stream.disposition?.attached_pic)
+        .map((stream) => ({
+          index: stream.index,
+          height: this.parseInt(stream.height),
+          width: this.parseInt(stream.width),
+          codecName: stream.codec_name === 'h265' ? 'hevc' : stream.codec_name,
+          codecType: stream.codec_type,
+          frameCount: this.parseInt(options?.countFrames ? stream.nb_read_packets : stream.nb_frames),
+          rotation: this.parseInt(stream.rotation),
+          isHDR: stream.color_transfer === 'smpte2084' || stream.color_transfer === 'arib-std-b67',
+          bitrate: this.parseInt(stream.bit_rate),
+          pixelFormat: stream.pix_fmt || 'yuv420p',
+          colorPrimaries: stream.color_primaries,
+          colorSpace: stream.color_space,
+          colorTransfer: stream.color_transfer,
+        })),
+      audioStreams: results.streams
+        .filter((stream) => stream.codec_type === 'audio')
+        .map((stream) => ({
+          index: stream.index,
+          codecType: stream.codec_type,
+          codecName: stream.codec_name,
+          bitrate: this.parseInt(stream.bit_rate),
+        })),
+    };
   }
 
-  transcode(input: string, output: string | Writable, options: TranscodeCommand): Promise<void> {
-    return this.storageRepository.withLocalPath(input, async (localInput) => {
-      // Handle Writable stream output (no remote storage support for streams)
-      if (typeof output !== 'string') {
-        if (options.twoPass) {
-          throw new TypeError('Two-pass transcoding does not support writing to a stream');
-        }
+  async transcode(input: string, output: string | Writable, options: TranscodeCommand): Promise<void> {
+    // For remote storage input, use presigned URL to avoid downloading
+    const inputPath = await this.storageRepository.getSignedUrl(input);
+
+    // Handle Writable stream output (no remote storage support for streams)
+    if (typeof output !== 'string') {
+      if (options.twoPass) {
+        throw new TypeError('Two-pass transcoding does not support writing to a stream');
+      }
+      return new Promise<void>((resolve, reject) => {
+        this.configureFfmpegCall(inputPath, output, options)
+          .on('error', reject)
+          .on('end', () => resolve())
+          .run();
+      });
+    }
+
+    // For file output, use writeFile to handle both local and remote storage
+    if (!options.twoPass) {
+      return this.storageRepository.writeFile(output, async (localOutput) => {
         return new Promise<void>((resolve, reject) => {
-          this.configureFfmpegCall(localInput, output, options)
+          this.configureFfmpegCall(inputPath, localOutput, options)
             .on('error', reject)
             .on('end', () => resolve())
             .run();
         });
-      }
+      });
+    }
 
-      // For file output, use writeFile to handle both local and remote storage
-      if (!options.twoPass) {
-        return this.storageRepository.writeFile(output, async (localOutput) => {
-          return new Promise<void>((resolve, reject) => {
-            this.configureFfmpegCall(localInput, localOutput, options)
+    // two-pass allows for precise control of bitrate at the cost of running twice
+    // recommended for vp9 for better quality and compression
+    return this.storageRepository.writeFile(output, async (localOutput) => {
+      return new Promise<void>((resolve, reject) => {
+        // first pass output is not saved as only the .log file is needed
+        this.configureFfmpegCall(inputPath, '/dev/null', options)
+          .addOptions('-pass', '1')
+          .addOptions('-passlogfile', localOutput)
+          .addOptions('-f null')
+          .on('error', reject)
+          .on('end', () => {
+            // second pass
+            this.configureFfmpegCall(inputPath, localOutput, options)
+              .addOptions('-pass', '2')
+              .addOptions('-passlogfile', localOutput)
               .on('error', reject)
+              .on('end', () => handlePromiseError(this.storageRepository.unlink(`${localOutput}-0.log`), this.logger))
+              .on('end', () =>
+                handlePromiseError(
+                  this.storageRepository.unlinkDir(`${localOutput}-0.log.mbtree`, { force: true }),
+                  this.logger,
+                ),
+              )
               .on('end', () => resolve())
               .run();
-          });
-        });
-      }
-
-      // two-pass allows for precise control of bitrate at the cost of running twice
-      // recommended for vp9 for better quality and compression
-      return this.storageRepository.writeFile(output, async (localOutput) => {
-        return new Promise<void>((resolve, reject) => {
-          // first pass output is not saved as only the .log file is needed
-          this.configureFfmpegCall(localInput, '/dev/null', options)
-            .addOptions('-pass', '1')
-            .addOptions('-passlogfile', localOutput)
-            .addOptions('-f null')
-            .on('error', reject)
-            .on('end', () => {
-              // second pass
-              this.configureFfmpegCall(localInput, localOutput, options)
-                .addOptions('-pass', '2')
-                .addOptions('-passlogfile', localOutput)
-                .on('error', reject)
-                .on('end', () => handlePromiseError(this.storageRepository.unlink(`${localOutput}-0.log`), this.logger))
-                .on('end', () =>
-                  handlePromiseError(
-                    this.storageRepository.unlinkDir(`${localOutput}-0.log.mbtree`, { force: true }),
-                    this.logger,
-                  ),
-                )
-                .on('end', () => resolve())
-                .run();
-            })
-            .run();
-        });
+          })
+          .run();
       });
     });
   }

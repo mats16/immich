@@ -7,6 +7,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
+import { getSignedUrl as awsGetSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
 import archiver from 'archiver';
 import chokidar, { ChokidarOptions } from 'chokidar';
@@ -167,6 +168,32 @@ export class StorageRepository {
   private getS3BucketAndKey(filepath: string): { endpoint: string; bucket: string; key: string } {
     const { endpoint, bucket, key } = this.parseCloudPath(filepath);
     return { endpoint, bucket, key };
+  }
+
+  /**
+   * Generate a presigned URL for reading a file from remote storage.
+   * This allows temporary access to private objects without downloading them first.
+   *
+   * @param filepath - The remote storage path (https://endpoint.com/bucket/key)
+   * @param expiresIn - URL expiration time in seconds (default: 3600 = 1 hour)
+   * @returns Presigned URL for direct access to the file
+   */
+  async getSignedUrl(filepath: string, expiresIn: number = 3600): Promise<string> {
+    if (!this.isRemote(filepath)) {
+      // Local filesystem: return the path as-is (no presigned URL needed)
+      return filepath;
+    }
+
+    const { endpoint, bucket, key } = this.parseCloudPath(filepath);
+    const client = this.getS3Client(endpoint);
+
+    const command = new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    });
+
+    // Type assertion needed due to @aws-sdk version mismatch
+    return awsGetSignedUrl(client as any, command, { expiresIn });
   }
 
   async realpath(filepath: string) {
