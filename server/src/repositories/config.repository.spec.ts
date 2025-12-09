@@ -81,7 +81,7 @@ describe('getEnv', () => {
     it('should throw an error for relative paths', () => {
       process.env.IMMICH_MEDIA_LOCATION = './relative/path';
       expect(() => getEnv()).toThrowError(
-        'IMMICH_MEDIA_LOCATION must be an absolute path or cloud storage path (e.g., /data or host.com/bucket/path)',
+        'IMMICH_MEDIA_LOCATION must be an absolute path or cloud storage URL (e.g., /data or https://endpoint.com/bucket/path)',
       );
     });
   });

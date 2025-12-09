@@ -54,9 +54,9 @@ export class EnvDto {
   IMMICH_LOG_LEVEL?: LogLevel;
 
   @Optional()
-  @Matches(/^(\/|[a-z0-9-]+\.[a-z0-9.-]+\/)/i, {
+  @Matches(/^(\/|https?:\/\/)/i, {
     message:
-      'IMMICH_MEDIA_LOCATION must be an absolute path or cloud storage path (e.g., /data or host.com/bucket/path)',
+      'IMMICH_MEDIA_LOCATION must be an absolute path or cloud storage URL (e.g., /data or https://endpoint.com/bucket/path)',
   })
   IMMICH_MEDIA_LOCATION?: string;
 
