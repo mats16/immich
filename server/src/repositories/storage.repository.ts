@@ -313,7 +313,7 @@ export class StorageRepository {
       Bucket: bucket,
       Key: key,
       Body: buffer,
-      ContentType: mimeTypes.lookup(filepath),
+      ContentType: mimeTypes.lookup(key),
     });
     await client.send(command);
   }
@@ -376,7 +376,9 @@ export class StorageRepository {
     // Remote storage: Upload stream to S3
     const { endpoint, bucket, key } = this.parseCloudPath(destination);
     const client = this.getS3Client(endpoint);
-    this.logger.debug(`Uploading file to S3: bucket=${bucket}, key=${key}`);
+    // Use the S3 key (file path) instead of full URL for content type detection
+    const contentType = mimeTypes.lookup(key);
+    this.logger.debug(`Uploading file to S3: bucket=${bucket}, key=${key}, contentType=${contentType}`);
 
     try {
       const upload = new Upload({
@@ -385,7 +387,7 @@ export class StorageRepository {
           Bucket: bucket,
           Key: key,
           Body: stream,
-          ContentType: mimeTypes.lookup(destination),
+          ContentType: mimeTypes.lookup(key),
         },
       });
 
@@ -416,7 +418,7 @@ export class StorageRepository {
       Bucket: bucket,
       Key: key,
       Body: buffer,
-      ContentType: mimeTypes.lookup(filepath),
+      ContentType: mimeTypes.lookup(key),
     });
     await client.send(command);
   }
@@ -434,7 +436,7 @@ export class StorageRepository {
       Bucket: bucket,
       Key: key,
       Body: buffer,
-      ContentType: mimeTypes.lookup(filepath),
+      ContentType: mimeTypes.lookup(key),
     });
     await client.send(command);
   }
@@ -812,7 +814,7 @@ export class StorageRepository {
         Bucket: bucket,
         Key: key,
         Body: buffer,
-        ContentType: mimeTypes.lookup(filepath),
+        ContentType: mimeTypes.lookup(key),
       });
       await client.send(command);
 
