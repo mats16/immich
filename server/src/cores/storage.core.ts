@@ -109,17 +109,16 @@ export class StorageCore {
 
     const firstSegment = segments.shift()!;
 
-    const joinedPath = join(...segments);
-
     // Check if this is a remote storage URL
     if (firstSegment.startsWith('https://')) {
       const url = new URL(firstSegment);
-      url.pathname = new URL(joinedPath, url).pathname;
+      // Join URL pathname with remaining segments directly
+      url.pathname = join(url.pathname, ...segments);
       return url.href;
     }
 
     // Local filesystem path: use standard path.join()
-    return join(firstSegment, joinedPath);
+    return join(firstSegment, ...segments);
   }
 
   static getFolderLocation(folder: StorageFolder, userId: string) {
