@@ -90,42 +90,15 @@ export class StorageCore {
   }
 
   static getFolderLocation(folder: StorageFolder, userId: string) {
-    return StorageCore.joinPath(StorageCore.getBaseFolder(folder), userId);
+    return join(StorageCore.getBaseFolder(folder), userId);
   }
 
   static getLibraryFolder(user: { storageLabel: string | null; id: string }) {
-    return StorageCore.joinPath(StorageCore.getBaseFolder(StorageFolder.Library), user.storageLabel || user.id);
+    return join(StorageCore.getBaseFolder(StorageFolder.Library), user.storageLabel || user.id);
   }
 
   static getBaseFolder(folder: StorageFolder) {
-    return StorageCore.joinPath(StorageCore.getMediaLocation(), folder);
-  }
-
-  /**
-   * Join path segments, handling both local filesystem paths and cloud storage URLs.
-   * For URLs, uses forward slash separator.
-   * For local paths, uses platform-specific path separator.
-   */
-  private static joinPath(...segments: string[]): string {
-    if (segments.length === 0) {
-      return '';
-    }
-
-    const firstSegment = segments[0];
-    // Check if it's a URL
-    if (firstSegment.startsWith('https://')) {
-      // URL: Join with forward slashes
-      return segments.reduce((acc, segment) => {
-        // Remove trailing slashes from accumulator
-        const cleanAcc = acc.replace(/\/+$/, '');
-        // Remove leading slashes from segment
-        const cleanSegment = segment.replace(/^\/+/, '');
-        return cleanSegment ? `${cleanAcc}/${cleanSegment}` : cleanAcc;
-      });
-    }
-
-    // Local filesystem path: Use platform-specific join
-    return join(...segments);
+    return join(StorageCore.getMediaLocation(), folder);
   }
 
   static getPersonThumbnailPath(person: ThumbnailPathEntity) {
@@ -362,7 +335,7 @@ export class StorageCore {
   }
 
   static getNestedFolder(folder: StorageFolder, ownerId: string, filename: string): string {
-    return StorageCore.joinPath(
+    return join(
       StorageCore.getFolderLocation(folder, ownerId),
       filename.slice(0, 2),
       filename.slice(2, 4),
@@ -370,10 +343,10 @@ export class StorageCore {
   }
 
   static getNestedPath(folder: StorageFolder, ownerId: string, filename: string): string {
-    return StorageCore.joinPath(this.getNestedFolder(folder, ownerId, filename), filename);
+    return join(this.getNestedFolder(folder, ownerId, filename), filename);
   }
 
   static getTempPathInDir(dir: string): string {
-    return StorageCore.joinPath(dir, `${randomUUID()}.tmp`);
+    return join(dir, `${randomUUID()}.tmp`);
   }
 }
