@@ -335,11 +335,7 @@ export class StorageCore {
   }
 
   static getNestedFolder(folder: StorageFolder, ownerId: string, filename: string): string {
-    return join(
-      StorageCore.getFolderLocation(folder, ownerId),
-      filename.slice(0, 2),
-      filename.slice(2, 4),
-    );
+    return join(StorageCore.getFolderLocation(folder, ownerId), filename.slice(0, 2), filename.slice(2, 4));
   }
 
   static getNestedPath(folder: StorageFolder, ownerId: string, filename: string): string {
