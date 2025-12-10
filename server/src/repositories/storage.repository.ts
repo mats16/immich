@@ -670,10 +670,18 @@ export class StorageRepository {
   }
 
   async unlinkDir(folder: string, options: { recursive?: boolean; force?: boolean }) {
+    if (this.isRemote(folder)) {
+      throw new Error('unlinkDir is not supported for remote storage');
+    }
     await fs.rm(folder, options);
   }
 
   async removeEmptyDirs(directory: string, self: boolean = false) {
+    // Remote storage: S3 doesn't have directory concept, skip empty dir removal
+    if (this.isRemote(directory)) {
+      return;
+    }
+
     // lstat does not follow symlinks (in contrast to stat)
     const stats = await fs.lstat(directory);
     if (!stats.isDirectory()) {
@@ -692,12 +700,22 @@ export class StorageRepository {
   }
 
   mkdirSync(filepath: string): void {
+    // Remote storage: S3 doesn't have directory concept, no need to create directories
+    if (this.isRemote(filepath)) {
+      return;
+    }
+
     if (!existsSync(filepath)) {
       mkdirSync(filepath, { recursive: true });
     }
   }
 
   existsSync(filepath: string) {
+    // Remote storage: paths always "exist" in S3 (no directory creation needed)
+    if (this.isRemote(filepath)) {
+      return true;
+    }
+
     return existsSync(filepath);
   }
 
