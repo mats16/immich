@@ -11,6 +11,7 @@ import { ArgOf } from 'src/repositories/event.repository';
 import { BaseService } from 'src/services/base.service';
 import { JobOf, StorageAsset } from 'src/types';
 import { getLivePhotoMotionFilename } from 'src/utils/file';
+import { joinPath } from 'src/utils/path';
 
 const storageTokens = {
   secondOptions: ['s', 'ss', 'SSS'],
@@ -290,7 +291,7 @@ export class StorageTemplateService extends BaseService {
         albumStartDate,
         albumEndDate,
       });
-      const fullPath = path.normalize(path.join(rootPath, storagePath));
+      const fullPath = joinPath(rootPath, storagePath);
       let destination = `${fullPath}.${extension}`;
 
       if (!fullPath.startsWith(rootPath)) {

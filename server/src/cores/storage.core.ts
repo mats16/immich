@@ -12,6 +12,7 @@ import { StorageRepository } from 'src/repositories/storage.repository';
 import { SystemMetadataRepository } from 'src/repositories/system-metadata.repository';
 import { getAssetFile } from 'src/utils/asset.util';
 import { getConfig } from 'src/utils/config';
+import { joinPath } from 'src/utils/path';
 
 export interface MoveRequest {
   entityId: string;
@@ -89,48 +90,16 @@ export class StorageCore {
     mediaLocation = location;
   }
 
-  /**
-   * Custom path joining method that handles both local filesystem paths and remote storage URLs.
-   *
-   * For remote URLs (starting with https:// or http://):
-   * - Uses URL API to properly join path segments while preserving URL structure
-   * - path.join() is not suitable for URLs as it may incorrectly normalize '://' to ':/'
-   *
-   * For local filesystem paths:
-   * - Uses standard path.join() which works correctly in Docker/Linux environment
-   *
-   * Note: Upstream Immich only supports local storage, so it uses simple path.join().
-   * This custom method is required for remote storage (S3) support.
-   */
-  private static joinPath(...segments: string[]): string {
-    if (segments.length === 0) {
-      return '';
-    }
-
-    const firstSegment = segments.shift()!;
-
-    // Check if this is a remote storage URL
-    if (firstSegment.startsWith('https://')) {
-      const url = new URL(firstSegment);
-      // Join URL pathname with remaining segments directly
-      url.pathname = join(url.pathname, ...segments);
-      return url.href;
-    }
-
-    // Local filesystem path: use standard path.join()
-    return join(firstSegment, ...segments);
-  }
-
   static getFolderLocation(folder: StorageFolder, userId: string) {
-    return StorageCore.joinPath(StorageCore.getBaseFolder(folder), userId);
+    return joinPath(StorageCore.getBaseFolder(folder), userId);
   }
 
   static getLibraryFolder(user: { storageLabel: string | null; id: string }) {
-    return StorageCore.joinPath(StorageCore.getBaseFolder(StorageFolder.Library), user.storageLabel || user.id);
+    return joinPath(StorageCore.getBaseFolder(StorageFolder.Library), user.storageLabel || user.id);
   }
 
   static getBaseFolder(folder: StorageFolder) {
-    return StorageCore.joinPath(StorageCore.getMediaLocation(), folder);
+    return joinPath(StorageCore.getMediaLocation(), folder);
   }
 
   static getPersonThumbnailPath(person: ThumbnailPathEntity) {
@@ -367,18 +336,14 @@ export class StorageCore {
   }
 
   static getNestedFolder(folder: StorageFolder, ownerId: string, filename: string): string {
-    return StorageCore.joinPath(
-      StorageCore.getFolderLocation(folder, ownerId),
-      filename.slice(0, 2),
-      filename.slice(2, 4),
-    );
+    return joinPath(StorageCore.getFolderLocation(folder, ownerId), filename.slice(0, 2), filename.slice(2, 4));
   }
 
   static getNestedPath(folder: StorageFolder, ownerId: string, filename: string): string {
-    return StorageCore.joinPath(this.getNestedFolder(folder, ownerId, filename), filename);
+    return joinPath(this.getNestedFolder(folder, ownerId, filename), filename);
   }
 
   static getTempPathInDir(dir: string): string {
-    return StorageCore.joinPath(dir, `${randomUUID()}.tmp`);
+    return joinPath(dir, `${randomUUID()}.tmp`);
   }
 }
